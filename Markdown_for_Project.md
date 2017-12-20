@@ -1,0 +1,278 @@
+---
+title: "Effects of Severe Weather Events on Population Health and the US Economy"
+output: 
+  html_document:
+    keep_md: true
+---
+
+
+
+###Synopsis  
+
+
+####Effects on Population Health  
+Of all the severe weather events, **excessive heat** *(the combination of temperatures above established warning thresholds and high humidity)* and **tornados** have caused the highest number of deaths and injuries in the US from 1994 - 2011. **Heat** and **excessive heat** make up the top two spots when looking at average deaths per weather event, and excessive heat is the second highest weather event when looking at average injuries per event. **Hurricanes** have the highest average number of injuries per event.  
+
+####Effects on the US Economy  
+
+**Hurricanes** also cause the most amount of property and crop damage per event, but they happen infrequently enough that they are not in the top five weather events looking at total damage costs from 1994 - 2011. **Thunderstorm winds**, **flash floods**, and **tornados** have caused the highest total property damage, while **hail** is also a major factor in total crop damage.
+
+<br />
+
+###Data Loading and Processing  
+
+Processing Steps:  
+
+1. Created a `dttm` out of `BGN_DATE` and created a `Year` column.  
+2. Converted `EVTYPE` into a factor, so that I could more easily collapse them later on.
+3. Limited to weather events with >50 events as named in the data set, for the sake of ease. 975 unique `EVTYPE`s turned into 87.  
+4. Of the top events, I collapsed the named weather event factors into events defined in [the documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)   
+5. Limited to events after 1993, as 1994 was the year when over 20K events were recorded, which seemed like a reasonable cutoff.  
+6. Created all metrics of interest by weather event (total deaths, total injuries, total property damage, total crop damage, and all former metrics per weather event).
+7. To ensure that colors could be consistent across each plot, I got the unique weather events making up the top 5 of each metric and assigned a color to each event.  
+
+
+```r
+R.utils::bunzip2("storm_data.csv.bz2", "storm_data.csv", remove = FALSE, skip = TRUE)
+```
+
+```
+## [1] "storm_data.csv"
+## attr(,"temporary")
+## [1] FALSE
+```
+
+```r
+storm_data <- read.csv("storm_data.csv", stringsAsFactors = FALSE)
+
+# DTTM, Year, and converting EVTYPE to factor
+storm_data <- storm_data %>%
+  mutate(BGN_DATE = lubridate::as_date(mdy_hms(BGN_DATE)),
+         Year = year(BGN_DATE),
+         EVTYPE = forcats::as_factor(EVTYPE))
+
+# Creating df with limit to >50 events
+storm_limit <- storm_data %>%
+  group_by(EVTYPE) %>%
+  count() %>%
+  filter(n > 50)  
+  
+# Inner joining the limited df, collapsing factors, and limiting to > 1993.
+storm_data <- storm_data %>%
+  semi_join(storm_limit, by = c('EVTYPE' = 'EVTYPE')) %>%
+  mutate(EVTYPE = fct_collapse(EVTYPE,
+                              'COASTAL FLOOD' = c('COASTAL FLOOD', 'COASTAL FLOODING'),
+                              'DENSE FOG' = c('FOG', 'DENSE FOG'),
+                              'DROUGHT' = c('DROUGHT', 'UNSEASONABLY DRY'),
+                              'EXCESSIVE HEAT' = c('EXCESSIVE HEAT', 'RECORD HEAT', 'HEAT WAVE'),
+                              'EXTREME COLD/WIND CHILL' = c('EXTREME COLD/WIND CHILL', 'EXTREME COLD', 'EXTREME WINDCHILL', 'FREEZE', 'RECORD COLD'),
+                              'COLD/WIND CHILL' = c('COLD', 'COLD/WIND CHILL'),
+                              'FLASH FLOOD' = c('FLASH FLOOD', 'FLASH FLOODING', 'FLOOD/FLASH FLOOD'),
+                              'FLOOD' = c('FLOOD', 'URBAN/SML STREAM FLD', 'URBAN FLOOD', 'RIVER FLOOD', 'FLOODING', 'URBAN FLOODING'),
+                              'FROST/FREEZE' = c('FROST/FREEZE', 'FROST'),
+                              'FUNNEL CLOUD' = c('FUNNEL CLOUD', 'FUNNEL CLOUDS'),
+                              'HEAT' = c('HEAT', 'RECORD WARMTH', 'UNSEASONABLY WARM'),
+                              'HIGH SURF' = c('HIGH SURF', 'HEAVY SURF/HIGH SURF', 'ASTRONOMICAL HIGH TIDE', 'HEAVY SURF'),
+                              'HIGH WIND' = c('HIGH WIND', 'WIND', 'HIGH WINDS', 'GUSTY WINDS'),
+                              'HURRICANE (TYPHOON)' = c('HURRICANE', "HURRICANE/TYPHOON"),
+                              'ICE STORM' = c('ICE STORM', 'ICE'),
+                              'MARINE THUNDERSTORM WIND' = c('MARINE TSTM WIND', 'MARINE THUNDERSTORM WIND'),
+                              'RIP CURRENT' = c('RIP CURRENT', 'RIP CURRENTS'),
+                              'SLEET' = c('SLEET', 'FREEZING RAIN'),
+                              'STORM SURGE/TIDE' = c('STORM SURGE', 'STORM SURGE/TIDE'),
+                              'STRONG WIND' = c('STRONG WIND', 'STRONG WINDS'),
+                              'THUNDERSTORM WIND' = c('TSTM WIND', 'THUNDERSTORM WIND', 'THUNDERSTORM WINDS', 'TSTM WIND/HAIL', 'DRY MICROBURST', 'THUNDERSTORM WINDS HAIL',
+                                                      'THUNDERSTORM WINDSS'),
+                              'WILDFIRE' = c('WILDFIRE', 'WILD/FOREST FIRE'),
+                              'WINTER WEATHER' = c('LIGHT SNOW', 'SNOW', 'WINTER WEATHER', 'WINTER WEATHER/MIX', 'MODERATE SNOWFALL', 'WINTRY MIX'))) %>%
+  filter(Year >= 1994)
+
+# Created all the totals and ratios that I'm interested in.
+storm_mutate <- storm_data %>%
+  group_by(EVTYPE) %>%
+  summarize(deaths = sum(FATALITIES), injuries = sum(INJURIES), propdmg = sum(PROPDMG), cropdmg = sum(CROPDMG), n = n()) %>%
+  mutate(dpe = deaths/n, ipe = injuries/n, pdpe = propdmg/n, cdpe = cropdmg/n, totaldmgpe = (propdmg + cropdmg)/n, totalfatinjpe = (deaths+injuries)/n)
+
+# Selecting specific values that are in the plots to assign color to them, so the color will be stable across the 4 death/injury plots
+storm_mutate_12 <-storm_mutate%>%
+  select(EVTYPE) %>%
+  filter(EVTYPE %in% c('EXCESSIVE HEAT', 'TORNADO', 'FLASH FLOOD', 'HEAT', 'LIGHTNING', 'FLOOD', 'THUNDERSTORM WIND',
+                       'RIP CURRENT', 'AVALANCHE', 'HURRICANE (TYPHOON)', 'DUST STORM', 'ICE STORM'))
+cols <- as.tibble(RColorBrewer::brewer.pal(length(unique(storm_mutate_12$EVTYPE)), name = "Set3"))
+storm_mutate_12$cols <- cbind(cols$value)
+
+# Getting colors for the crop and property damage
+storm_mutate_10_dmg <-storm_mutate%>%
+  select(EVTYPE) %>%
+  filter(EVTYPE %in% c('THUNDERSTORM WIND', 'FLASH FLOOD', 'TORNADO', 'HAIL', 'FLOOD', 'HURRICANE (TYPHOON)', 'TROPICAL STORM',
+                       'STORM SURGE/TIDE', 'LIGHTNING', 'DROUGHT' ,'FROST/FREEZE'))
+cols10 <- as.tibble(RColorBrewer::brewer.pal(length(unique(storm_mutate_10_dmg$EVTYPE)), name = "Set3"))
+storm_mutate_10_dmg$cols <- cbind(cols10$value)
+```
+
+
+### Results  
+
+
+```r
+# Creating all of the filtered views I will use to plot the death and injury data
+
+storm_total_deaths <- storm_mutate %>%
+  arrange(desc(deaths)) %>%
+  head(n=5) %>%
+  inner_join(storm_mutate_12)
+
+storm_total_injuries <- storm_mutate %>%
+  arrange(desc(injuries)) %>%
+  head(n=5) %>%
+  inner_join(storm_mutate_12)
+
+storm_dpe <- storm_mutate %>%
+  arrange(desc(dpe)) %>%
+  head(n=5) %>%
+  inner_join(storm_mutate_12)
+
+storm_ipe <- storm_mutate %>%
+  arrange(desc(ipe)) %>%
+  head(n=5) %>%
+  inner_join(storm_mutate_12)
+```
+
+*Please note that colors are consistent by weather event per plot type, but they differ across each plot*  
+
+```r
+#Code for the first plot
+
+par(mfrow = c(2,2), oma = c(0,0,2,0))
+
+par(mar = c(7,4,4,2))
+with(storm_total_deaths, 
+     barplot(height = deaths,
+             names.arg = EVTYPE,
+             ylab = "Total Deaths",
+             xaxt = 'n',
+             main = "Total Deaths",
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3] - 0.25, srt = 45, adj = 1, labels = storm_total_deaths$EVTYPE, xpd = TRUE)
+
+#TOTAL INJURES
+par(mar = c(7,4,4,2))
+with(storm_total_injuries, 
+     barplot(height = injuries,
+             names.arg = EVTYPE,
+             ylab = "Total Injuries",
+             xaxt = 'n',
+             main = "Total Injuries",
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3] - 0.25, srt = 45, adj = 1, labels = storm_total_injuries$EVTYPE, xpd = TRUE)
+
+#AVG DEATH PER EVENT
+par(mar = c(7,4,4,2))
+with(storm_dpe, 
+     barplot(height = dpe,
+             names.arg = EVTYPE,
+             ylab = "Avg Deaths Per Event",
+             xaxt = 'n',
+             main = "Average Deaths Per Weather Event",
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3], srt = 45, adj = 1, labels = storm_dpe$EVTYPE, xpd = TRUE)
+
+#AVG INJURIES PER EVENT
+par(mar = c(7,4,4,2))
+with(storm_ipe, 
+     barplot(height = ipe,
+             names.arg = EVTYPE,
+             ylab = "Average Injuries Per Event",
+             xaxt = 'n',
+             main = "Average Injuries Per Weather Event", 
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3], srt = 45, adj = 1, labels = storm_ipe$EVTYPE, xpd = TRUE)
+
+title("Effects on Population Health by Top Weather Events from 1994 - 2011", outer = TRUE)
+```
+
+![](Markdown_for_Project_files/figure-html/Plot1-1.png)<!-- -->
+
+
+
+```r
+# Filtered dfs for the property and crop damage data  
+
+storm_total_pdmg <- storm_mutate %>%
+  arrange(desc(propdmg)) %>%
+  head(n=5) %>%
+  inner_join(storm_mutate_10_dmg)
+
+storm_total_cdmg <- storm_mutate %>%
+  arrange(desc(cropdmg)) %>%
+  head(n=5)%>%
+  inner_join(storm_mutate_10_dmg)
+
+storm_avg_pdmg <- storm_mutate %>%
+  arrange(desc(pdpe)) %>%
+  head(n=5)%>%
+  inner_join(storm_mutate_10_dmg)
+
+storm_avg_cdmg <- storm_mutate %>%
+  arrange(desc(cdpe)) %>%
+  head(n=5)%>%
+  inner_join(storm_mutate_10_dmg)
+```
+
+
+<br />
+
+
+```r
+# Code for property and crop damage plots
+
+# TOTAL PROPERTY DAMAGE
+par(mfrow = c(2,2), oma = c(0,0,2,0))
+
+par(mar = c(7,4,4,2))
+with(storm_total_pdmg, 
+     barplot(height = propdmg,
+             names.arg = EVTYPE,
+             ylab = "Total Property Damage ($)",
+             xaxt = 'n',
+             main = "Total Property Damage in Dollars",
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3] - 0.25, srt = 45, adj = 1, labels = storm_total_pdmg$EVTYPE, xpd = TRUE)
+
+#TOTAL CROP DAMAGE
+par(mar = c(7,4,4,2))
+with(storm_total_cdmg, 
+     barplot(height = cropdmg,
+             names.arg = EVTYPE,
+             ylab = "Total Crop Damage ($)",
+             xaxt = 'n',
+             main = "Total Crop Damage in Dollars",
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3] - 0.25, srt = 45, adj = 1, labels = storm_total_cdmg$EVTYPE, xpd = TRUE)
+
+#AVG PROPERTY DAMAGE
+par(mar = c(7,4,4,2))
+with(storm_avg_pdmg, 
+     barplot(height = pdpe,
+             names.arg = EVTYPE,
+             ylab = "Avg Property Damage",
+             xaxt = 'n',
+             main = "Average Property Damage per Weather Event",
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3], srt = 45, adj = 1, labels = storm_avg_pdmg$EVTYPE, xpd = TRUE)
+
+#AVG CROP DAMAGE
+par(mar = c(7,4,4,2))
+with(storm_avg_cdmg, 
+     barplot(height = cdpe,
+             names.arg = EVTYPE,
+             ylab = "Average Crop Damage",
+             xaxt = 'n',
+             main = "Average Crop Damage Per Weather Event", 
+             col = cols))
+text(seq(from = 1, to = 5.75, by = (1.15)), par("usr")[3], srt = 45, adj = 1, labels = storm_avg_cdmg$EVTYPE, xpd = TRUE)
+
+title("Effects on US Economy by Top Weather Events from 1994 - 2011", outer = TRUE)
+```
+
+![](Markdown_for_Project_files/figure-html/dmg_plots-1.png)<!-- -->
